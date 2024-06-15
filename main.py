@@ -1,6 +1,5 @@
 import sys
 import os
-import PyQt5
 import traceback
 from openpyxl.styles.borders import Side
 from openpyxl.styles import PatternFill
@@ -8,8 +7,8 @@ from openpyxl import Workbook
 import json
 import PyQt5.QtWidgets as qwidget
 from PyQt5.QtGui import QFont
-import PyQt5.QtCore as qcore
 from PyQt5 import uic
+
 
 # При добавлении нового праметра, удаляем старый json файл
 default_settings = {'json_encode': True,
@@ -17,7 +16,9 @@ default_settings = {'json_encode': True,
                     'column_count': 20,
                     'program_font': 'Segoe UI',
                     'negative_schedule': False,
-                    'saturday_enabled': True}
+                    'saturday_enabled': True,
+                    'max_hours_week': 36
+                    }
 
 
 def settings_create_if_notExist():
@@ -30,7 +31,7 @@ def settings_create_if_notExist():
 settings_create_if_notExist()
 
 
-def settings_get():
+def get_settings():
     cur_path = 'data/settings.json'
     if os.path.exists(cur_path):
         with open(cur_path, 'r', encoding='utf-8') as f:
@@ -54,7 +55,7 @@ class UiSettigns(qwidget.QWidget):
         self.setWindowTitle('Настройки')
         self.setMaximumSize(457, 300)
         # конфиг
-        self.current_settings = settings_get()
+        self.current_settings = get_settings()
         self.spinBox_row.setValue(self.current_settings['rows_count'])
         self.spinBox_col.setValue(self.current_settings['column_count'])
         self.fontComboBox.setCurrentFont(QFont(self.current_settings['program_font']))
@@ -88,7 +89,7 @@ class UiSettigns(qwidget.QWidget):
         self.frame_add.hide()
 
     def change_settings(self, key, value):
-        self.current_settings = settings_get()
+        self.current_settings = get_settings()
         self.current_settings[key] = value
 
         cur_path = 'data/settings.json'
@@ -131,9 +132,6 @@ class FrameMain(qwidget.QMainWindow):
         self.setWindowTitle('Генератор Расписания')
         # self.setMaximumSize(1200, 700)
 
-        # Загрузка настроек
-        self.current_settings = settings_get()
-
         # Сохранение и загрузка файла происходит в порядке расстановки в списке,
         # НЕ МЕНЯТЬ ПОРЯДОК!
         self.itemGroups = [
@@ -158,7 +156,7 @@ class FrameMain(qwidget.QMainWindow):
         # Меню бар кнопки
         self.btn_file.clicked.connect(self.show_file)
         self.btn_settings.clicked.connect(self.ui_settings)
-        self.btn_generate.clicked.connect(lambda x: 1)  # -----
+        self.btn_generate.clicked.connect(self.generate)  # -----
         self.btn_about.clicked.connect(self.ui_about)
         self.listWidget_file.itemClicked.connect(lambda x: self.file_edit_widget(x.text()))
 
@@ -172,7 +170,7 @@ class FrameMain(qwidget.QMainWindow):
         # Настройка таблиц
         for group in self.itemGroups:
             for table in group:
-                table.setRowCount(int(self.current_settings['rows_count']))
+                table.setRowCount(int(get_settings()['rows_count']))
 
     # Работа с файлом
     def show_file(self):
@@ -206,7 +204,67 @@ class FrameMain(qwidget.QMainWindow):
 
     # Главная функция
     def generate(self):
-        pass
+        # Получаем словарь: {группа: {предмет:часов}}
+        def toNewDict(old_dict: dict) -> dict:
+            result = {}
+            flag = False
+            for key, item in old_dict.items():
+                if key and item and not flag:
+                    for value in item:
+                        if value:
+                            result[value] = {}
+                    flag = True
+                else:
+                    result_keys = result.copy().keys()
+                    for new_key, index in zip(result_keys, range(len(result_keys))):
+                        if not new_key or len(item) <= index or not key:
+                            break
+                        result[new_key].update([(key, item[index])])
+            return result
+
+        # Требуется для инкапсуляции данных
+        def get_add_hourse():
+            data_add_hours = toNewDict(self.getTable(self.table_addHours))
+            data_add_info = toNewDict(self.getTable(self.table_add))
+            return [data_add_hours, data_add_info]
+
+        generate_data = {'HOURS': toNewDict(self.getTable(self.table_hours)),
+                         'ADD_HOURSE': get_add_hourse(),
+                         'FREE_ROOMS': self.getTable(self.table_rooms),
+                         'GROUPS': toNewDict(self.getTable(self.table_groups)),
+                         'ATTACHED_TEACHERS': toNewDict(self.getTable(self.table_binding)),
+                         'MAX_WEEK_LESSONS': {},
+                         }
+
+        def add_dict_hours():
+            max_lessons = int(get_settings()['max_hours_week']) // 2
+            [generate_data['MAX_WEEK_LESSONS'].update({key: max_lessons}) for key in generate_data['GROUPS'].keys()]
+
+        add_dict_hours()
+        # Если суббота включена то 6-(1-1)=6 если нет то 6-(1-0)=5
+        saturday_enabled = 1 - int(get_settings()['saturday_enabled'])
+        max_days = len(self.itemWeek) - saturday_enabled
+
+        def choise_lesson(dict_hours: dict):
+            return max(dict_hours, key=lambda x: int(dict_hours.get(x)))
+
+        for day_index in range(int(max_days)):
+            day_table = self.itemWeek[day_index]
+            for key, col in zip(generate_data['GROUPS'].keys(), range(len(generate_data['GROUPS']))):
+                day_table.setItem(0, col, qwidget.QTableWidgetItem(key))
+                # Количество пар на день
+                max_lessons_day = round(generate_data['MAX_WEEK_LESSONS'][key] / max_days)
+                # Вычитаем часы из общей массы группы
+                generate_data['MAX_WEEK_LESSONS'][key] -= max_lessons_day
+                for row in range(max_lessons_day):
+                    current_lesson = choise_lesson(generate_data['HOURS'][key])
+                    cell_value = int(generate_data['HOURS'][key][current_lesson])
+                    if cell_value <= 0:
+                        current_lesson = ''
+                    else:
+                        generate_data['HOURS'][key][current_lesson] = cell_value - 2
+                    day_table.setItem(row+1, col, qwidget.QTableWidgetItem(current_lesson))
+            max_days -= 1
 
     # Открыть о программе
     def ui_about(self):
@@ -268,7 +326,7 @@ class FrameMain(qwidget.QMainWindow):
                     primary_data.get(packet_name).append(self.getTable(item))
         if primary_data:
             with open(pathName, 'w') as f:
-                f.write(json.dumps(primary_data, ensure_ascii=self.current_settings['json_encode'], indent=4))
+                f.write(json.dumps(primary_data, ensure_ascii=get_settings()['json_encode'], indent=4))
 
     def loadFile(self):
         current_file, file_type = qwidget.QFileDialog.getOpenFileName(self, directory='C://', filter='JSON (*.json)')
@@ -287,7 +345,6 @@ class FrameMain(qwidget.QMainWindow):
                             self.update()
                             for column in range(table.columnCount()):
                                 # Получаем из данных, где ключ - название колонки
-                                print(column, table.objectName())
                                 value = item[tableIndex].get(table.horizontalHeaderItem(column).text())
                                 if value:
                                     for row in range(0, len(value)):
@@ -403,7 +460,7 @@ class FrameMain(qwidget.QMainWindow):
                     value = value.text()
                     already.append(value)
                     self.table_addHours.setColumnCount(len(already) + 1)
-                    self.table_addHours.setHorizontalHeaderItem(row + 1, qwidget.QTableWidgetItem(value+'\n (Часов)'))
+                    self.table_addHours.setHorizontalHeaderItem(row + 1, qwidget.QTableWidgetItem(value))
 
             load_table(table=self.table_addHours, data=table_data)
 

@@ -1,8 +1,0 @@
-{
-    "json_encode": true,
-    "rows_count": 20,
-    "column_count": 20,
-    "program_font": "Roman",
-    "negative_schedule": false,
-    "saturday_enabled": true
-}

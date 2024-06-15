@@ -699,7 +699,7 @@
      <enum>QTabWidget::Triangular</enum>
     </property>
     <property name="currentIndex">
-     <number>2</number>
+     <number>1</number>
     </property>
     <property name="elideMode">
      <enum>Qt::ElideLeft</enum>
@@ -1273,7 +1273,7 @@
           <number>20</number>
          </property>
          <property name="columnCount">
-          <number>2</number>
+          <number>1</number>
          </property>
          <attribute name="horizontalHeaderCascadingSectionResizes">
           <bool>false</bool>
@@ -1307,11 +1307,6 @@
          <column>
           <property name="text">
            <string>Название Группы</string>
-          </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>Кол-во часов</string>
           </property>
          </column>
         </widget>
