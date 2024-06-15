@@ -1,0 +1,9 @@
+{
+    "json_encode": true,
+    "rows_count": 21,
+    "column_count": 20,
+    "program_font": "Segoe UI",
+    "negative_schedule": false,
+    "saturday_enabled": false,
+    "max_hours_week": 36
+}
