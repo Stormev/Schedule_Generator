@@ -9,7 +9,6 @@ import PyQt5.QtWidgets as qwidget
 from PyQt5.QtGui import QFont
 from PyQt5 import uic
 
-
 # При добавлении нового праметра, удаляем старый json файл
 default_settings = {'json_encode': True,
                     'rows_count': 20,
@@ -202,9 +201,26 @@ class FrameMain(qwidget.QMainWindow):
         error_dialog.setWindowTitle('Ошибка')
         error_dialog.exec_()
 
+    # Очиста правых таблиц
+    def clear_week(self):
+        for table in self.itemWeek:
+            for column in range(table.columnCount()):
+                table.setHorizontalHeaderItem(column, qwidget.QTableWidgetItem(''))
+            row = table.rowCount()
+            col = table.columnCount()
+            table.setRowCount(0)
+            table.setColumnCount(0)
+            table.setRowCount(row)
+            table.setColumnCount(col)
+
     # Главная функция
     def generate(self):
+        # Очистка таблицы
+        self.clear_week()
+        print('Запуск генерации')
+
         # Получаем словарь: {группа: {предмет:часов}}
+
         def toNewDict(old_dict: dict) -> dict:
             result = {}
             flag = False
@@ -230,6 +246,7 @@ class FrameMain(qwidget.QMainWindow):
 
         generate_data = {'HOURS': toNewDict(self.getTable(self.table_hours)),
                          'ADD_HOURSE': get_add_hourse(),
+                         'TEACHERS': toNewDict(self.getTable(self.table_teachers)),
                          'FREE_ROOMS': self.getTable(self.table_rooms),
                          'GROUPS': toNewDict(self.getTable(self.table_groups)),
                          'ATTACHED_TEACHERS': toNewDict(self.getTable(self.table_binding)),
@@ -245,26 +262,110 @@ class FrameMain(qwidget.QMainWindow):
         saturday_enabled = 1 - int(get_settings()['saturday_enabled'])
         max_days = len(self.itemWeek) - saturday_enabled
 
-        def choise_lesson(dict_hours: dict):
-            return max(dict_hours, key=lambda x: int(dict_hours.get(x)))
+        # Выбирает пару с наибольшем количеством часов
+        def choise_lesson(dict_hours: dict, used_list=[]):
+            temp = dict_hours.copy()
+            if used_list:
+                [temp.pop(item) if temp.get(item) else False for item in used_list]
+                if not temp:
+                    return ''
+            return max(temp, key=lambda x: int(temp.get(x)))
 
+        # ----------ГЛАВНЫЙ ЦИКЛ ГЕНЕРАЦИИ----------------------------------------------------
+        # Цикл по дням недели
         for day_index in range(int(max_days)):
             day_table = self.itemWeek[day_index]
+            print(f'Процесс Генерации: {day_index + 1}/{max_days + day_index}')
+
+            # Учителя которые используются на одинаковом ряду пар
+            used_teachers = {}
+            # Модификатор ключа словаря сверху
+            inter_mod = lambda x: 'numb_' + str(x)
+            # Цикл групп
             for key, col in zip(generate_data['GROUPS'].keys(), range(len(generate_data['GROUPS']))):
-                day_table.setItem(0, col, qwidget.QTableWidgetItem(key))
+                day_table.setHorizontalHeaderItem(col, qwidget.QTableWidgetItem(key))
                 # Количество пар на день
                 max_lessons_day = round(generate_data['MAX_WEEK_LESSONS'][key] / max_days)
                 # Вычитаем часы из общей массы группы
                 generate_data['MAX_WEEK_LESSONS'][key] -= max_lessons_day
+                # Убераем повторения пар
+                used_lessons = []
+                # Список уже используемых свободных кабинетов
+                used_classes = []
+                # Цикл пар
                 for row in range(max_lessons_day):
-                    current_lesson = choise_lesson(generate_data['HOURS'][key])
+                    flag_priority = False
+                    current_lesson, teacher, teacher_room = ''
+
+                    # ----Проверяем дополнительные часы--
+                    for extra_lesson, extra_lesson_value in generate_data['ADD_HOURSE'][1].items():
+                        if int(extra_lesson_value['№Пары']) == row \
+                                and int(generate_data['ADD_HOURSE'][0][key][extra_lesson]) >= 1 \
+                                and int(extra_lesson_value['День Недели(1-6)']) == day_index + 1:
+                            # Запись результата
+                            day_table.setItem(row, col, qwidget.QTableWidgetItem(extra_lesson))
+                            flag_priority = True
+                            # Добавление 0-ого ряда
+                            for column_table in range(day_table.columnCount()):
+                                day_table.setVerticalHeaderItem(column_table,
+                                                                qwidget.QTableWidgetItem(str(column_table)))
+                            break
+                    if flag_priority:
+                        continue
+
+                    # Выбирает пару если нет приоритетной
+                    current_lesson = choise_lesson(generate_data['HOURS'][key], used_list=used_lessons)
                     cell_value = int(generate_data['HOURS'][key][current_lesson])
+                    # Если количество неповторяемых пар меньше 0 то будут повторяемые
                     if cell_value <= 0:
-                        current_lesson = ''
-                    else:
+                        used_lessons.clear()
+                        current_lesson = choise_lesson(generate_data['HOURS'][key])
+                        if int(generate_data['HOURS'][key][current_lesson]) <= 0:
+                            current_lesson = ''
+                    elif current_lesson:
+                        # Получаем привязанного преподователя по предмету
+                        teacher = generate_data['ATTACHED_TEACHERS'][key][current_lesson]
+                        # Если преподователь уже занят
+                        if used_teachers.get(inter_mod(row)) and teacher in used_teachers.get(inter_mod(row)):
+                            # Цикл поиска свободного преподователя на определённой паре
+                            count_stop = 10
+                            while teacher in used_teachers.get(inter_mod(row)):
+                                if count_stop <= 10:
+                                    if row == 0 or row + 1 >= max_lessons_day:
+                                        current_lesson = ''
+                                    break
+                                current_lesson = choise_lesson(generate_data['HOURS'][key],
+                                                               used_list=used_lessons + [current_lesson])
+                                teacher = generate_data['ATTACHED_TEACHERS'][key].get(current_lesson)
+                    # Проверка на пустую пару
+                    if current_lesson:
+                        # Фиксируем часы
+                        used_lessons.append(current_lesson)
                         generate_data['HOURS'][key][current_lesson] = cell_value - 2
-                    day_table.setItem(row+1, col, qwidget.QTableWidgetItem(current_lesson))
+                        # Получаем кабинет
+                        teacher_room = generate_data['TEACHERS'][teacher]['Кабинет']
+                        if not teacher_room:
+                            # Список свободных комнат
+                            rooms = self.getTable(self.table_rooms).popitem()[1]
+                            # Фильтр
+                            rooms = [used_room for used_room in rooms if used_room]
+                            [rooms.remove(used_room) for used_room in used_classes if used_room]
+                            # Выбор комнаты
+                            teacher_room = rooms.pop(0)
+                            used_classes.append(teacher_room)
+                            # Работа со словарём used_teachers. Нужно для создания словаря {№Пары:[Преподователи]}
+                        if not used_teachers.get(inter_mod(row)):
+                            used_teachers[inter_mod(row)] = [teacher]
+                        else:
+                            used_teachers[inter_mod(row)] = used_teachers[inter_mod(row)] + [teacher]
+
+                        # Итог дополняем информацией
+                        current_lesson = f'{current_lesson}({teacher.split()[0]}) {teacher_room} каб'
+                        # Запись результата
+                        day_table.setItem(row, col, qwidget.QTableWidgetItem(current_lesson))
+            # Максимальные дни уменьшаем дабы правильно рассчитывать количество пар на день
             max_days -= 1
+        print('Генерация завершена')
 
     # Открыть о программе
     def ui_about(self):
@@ -385,8 +486,8 @@ class FrameMain(qwidget.QMainWindow):
                         ws.cell(row=1, column=col).value = group
 
                         for row, val in item.items():
-                            ws.cell(row=int(row)+2, column=col).value = val
-                            ws.cell(row=int(row)+2, column=1).value = int(row)
+                            ws.cell(row=int(row) + 2, column=col).value = val
+                            ws.cell(row=int(row) + 2, column=1).value = int(row)
                     col += 1
                 if number < 5:
                     ws = work_b.create_sheet()
@@ -504,7 +605,6 @@ def excepthook(exc_type, exc_value, exc_tb):
 
 
 sys.excepthook = excepthook
-
 
 # app -приложение frame_main - главное окно
 app = None
