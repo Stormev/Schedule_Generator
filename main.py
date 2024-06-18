@@ -14,7 +14,7 @@ default_settings = {'json_encode': True,
                     'rows_count': 20,
                     'column_count': 20,
                     'program_font': 'Segoe UI',
-                    'negative_schedule': False,
+                    'negative_schedule': True,
                     'saturday_enabled': True,
                     'max_hours_week': 36
                     }
