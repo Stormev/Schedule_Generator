@@ -183,9 +183,10 @@ class FrameMain(qwidget.QMainWindow):
 
         result = {'Создать новый файл': self.newFile, 'Загрузить модель файла': self.loadFile,
                   'Сохранить модель файла': self.saveFile,
-                  'Экспортировать файл в .xlsx (Exel)': self.export_to_exel()}.get(mode)
+                  'Экспортировать файл в .xlsx (Excel)': self.export_to_exel}.get(mode)
         if result:
             result()
+
         self.show_file()
 
     # Открыть настройки
@@ -295,7 +296,7 @@ class FrameMain(qwidget.QMainWindow):
                 # Цикл пар
                 for row in range(max_lessons_day):
                     flag_priority = False
-                    current_lesson, teacher, teacher_room = ''
+                    current_lesson, teacher, teacher_room = '', '', ''
 
                     # ----Проверяем дополнительные часы--
                     for extra_lesson, extra_lesson_value in generate_data['ADD_HOURSE'][1].items():
@@ -455,44 +456,47 @@ class FrameMain(qwidget.QMainWindow):
     # конвертация в .xlsx
     def export_to_exel(self):
         current_data = []
+        print('here')
+        pathName, type = qwidget.QFileDialog.getSaveFileName(self, directory="C://")
+        print(pathName)
+        if pathName:
+            # Дни недели
+            days = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота']
 
-        # Дни недели
-        days = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота']
+            # Стиль
+            cell_border = Side(border_style="thin", color="000000")
+            cell_head_color = PatternFill(start_color='879bf5', end_color='879bf5', fill_type="solid")
+            cell_corner_color = PatternFill(start_color='a7a7a8', end_color='a7a7a8', fill_type="solid")
+            cell_height, cell_width = 25, 15
 
-        # Стиль
-        cell_border = Side(border_style="thin", color="000000")
-        cell_head_color = PatternFill(start_color='879bf5', end_color='879bf5', fill_type="solid")
-        cell_corner_color = PatternFill(start_color='a7a7a8', end_color='a7a7a8', fill_type="solid")
-        cell_height, cell_width = 25, 15
+            # Получаем значения
+            for table in self.itemWeek:
+                current_data.append(self.getTable(table, isdict=True))
 
-        # Получаем значения
-        for table in self.itemWeek:
-            current_data.append(self.getTable(table, isdict=True))
+            if current_data:
+                work_b = Workbook()
+                ws = work_b.active
+                # Цикл дней
+                for day, number in zip(current_data, range(len(current_data))):
+                    ws.title = days[number]
+                    ws.cell(row=1, column=1).fill = cell_corner_color
+                    ws.column_dimensions['A'].width = cell_width
+                    ws['A1'] = ' Пара -- Группа '
+                    col = 2
+                    # групп-пар
+                    for group, item in day.items():
+                        if item:
+                            ws.cell(row=1, column=col).fill = cell_head_color
+                            ws.cell(row=1, column=col).value = group
 
-        if current_data:
-            work_b = Workbook()
-            ws = work_b.active
-            # Цикл дней
-            for day, number in zip(current_data, range(len(current_data))):
-                ws.title = days[number]
-                ws.cell(row=1, column=1).fill = cell_corner_color
-                ws.column_dimensions['A'].width = cell_width
-                ws['A1'] = ' Пара -- Группа '
-                col = 2
-                # групп-пар
-                for group, item in day.items():
-                    if item:
-                        ws.cell(row=1, column=col).fill = cell_head_color
-                        ws.cell(row=1, column=col).value = group
+                            for row, val in item.items():
+                                ws.cell(row=int(row) + 2, column=col).value = val
+                                ws.cell(row=int(row) + 2, column=1).value = int(row)
+                        col += 1
+                    if number < 5:
+                        ws = work_b.create_sheet()
 
-                        for row, val in item.items():
-                            ws.cell(row=int(row) + 2, column=col).value = val
-                            ws.cell(row=int(row) + 2, column=1).value = int(row)
-                    col += 1
-                if number < 5:
-                    ws = work_b.create_sheet()
-
-            work_b.save(filename='test.xlsx')
+                work_b.save(filename=pathName)
 
     # Вызывается при обновлении данных в таблицах
     def update(self):
